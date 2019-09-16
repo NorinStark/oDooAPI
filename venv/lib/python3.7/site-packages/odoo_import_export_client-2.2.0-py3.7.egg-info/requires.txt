@@ -1,0 +1,4 @@
+odoo-client-lib
+future
+unicodecsv
+requests

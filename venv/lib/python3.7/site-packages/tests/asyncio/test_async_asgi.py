@@ -45,68 +45,105 @@ class AsgiTests(unittest.TestCase):
         mock_server.handle_request = AsyncMock()
         app = async_asgi.ASGIApp(mock_server)
         scope = {'type': 'http', 'path': '/engine.io/'}
-        handler = app(scope)
-        _run(handler('receive', 'send'))
+        _run(app(scope, 'receive', 'send'))
         mock_server.handle_request.mock.assert_called_once_with(
             scope, 'receive', 'send')
 
     def test_other_app_routing(self):
-        other_app = mock.MagicMock()
+        other_app = AsyncMock()
         app = async_asgi.ASGIApp('eio', other_app)
         scope = {'type': 'http', 'path': '/foo'}
-        app(scope)
-        other_app.assert_called_once_with(scope)
+        _run(app(scope, 'receive', 'send'))
+        other_app.mock.assert_called_once_with(scope, 'receive', 'send')
 
     def test_static_file_routing(self):
         root_dir = os.path.dirname(__file__)
         app = async_asgi.ASGIApp('eio', static_files={
-            '/foo': {'content_type': 'text/html',
-                     'filename': root_dir + '/index.html'}
+            '/': root_dir + '/index.html',
+            '/foo': {'content_type': 'text/plain',
+                     'filename': root_dir + '/index.html'},
+            '/static': root_dir,
+            '/static/test/': root_dir + '/',
         })
-        handler = app({'type': 'http', 'path': '/foo'})
-        receive = AsyncMock(return_value={'type': 'http.request'})
-        send = AsyncMock()
-        _run(handler(receive, send))
-        send.mock.assert_called_with({'type': 'http.response.body',
-                                      'body': b'<html></html>\n'})
+
+        def check_path(path, status_code, content_type, body):
+            scope = {'type': 'http', 'path': path}
+            receive = AsyncMock(return_value={'type': 'http.request'})
+            send = AsyncMock()
+            _run(app(scope, receive, send))
+            send.mock.assert_any_call({
+                'type': 'http.response.start',
+                'status': status_code,
+                'headers': [(b'Content-Type', content_type.encode('utf-8'))]})
+            send.mock.assert_any_call({
+                'type': 'http.response.body',
+                'body': body.encode('utf-8')})
+
+        check_path('/', 200, 'text/html', '<html></html>\n')
+        check_path('/foo', 200, 'text/plain', '<html></html>\n')
+        check_path('/static/index.html', 200, 'text/html', '<html></html>\n')
+        check_path('/static/foo.bar', 404, 'text/plain', 'Not Found')
+        check_path('/static/test/index.html', 200, 'text/html',
+                   '<html></html>\n')
+        check_path('/bar/foo', 404, 'text/plain', 'Not Found')
+        check_path('', 404, 'text/plain', 'Not Found')
+
+        app.static_files[''] = 'index.html'
+        check_path('/static/test/', 200, 'text/html',
+                   '<html></html>\n')
+
+        app.static_files[''] = {'filename': 'index.html'}
+        check_path('/static/test/', 200, 'text/html',
+                   '<html></html>\n')
+
+        app.static_files[''] = {'filename': 'index.html',
+                                'content_type': 'image/gif'}
+        check_path('/static/test/', 200, 'image/gif',
+                   '<html></html>\n')
+
+        app.static_files[''] = {'filename': 'test.gif'}
+        check_path('/static/test/', 404, 'text/plain', 'Not Found')
+
+        app.static_files = {}
+        check_path('/static/test/index.html', 404, 'text/plain', 'Not Found')
 
     def test_lifespan_startup(self):
         app = async_asgi.ASGIApp('eio')
-        handler = app({'type': 'lifespan'})
+        scope = {'type': 'lifespan'}
         receive = AsyncMock(return_value={'type': 'lifespan.startup'})
         send = AsyncMock()
-        _run(handler(receive, send))
+        _run(app(scope, receive, send))
         send.mock.assert_called_once_with(
             {'type': 'lifespan.startup.complete'})
 
     def test_lifespan_shutdown(self):
         app = async_asgi.ASGIApp('eio')
-        handler = app({'type': 'lifespan'})
+        scope = {'type': 'lifespan'}
         receive = AsyncMock(return_value={'type': 'lifespan.shutdown'})
         send = AsyncMock()
-        _run(handler(receive, send))
+        _run(app(scope, receive, send))
         send.mock.assert_called_once_with(
             {'type': 'lifespan.shutdown.complete'})
 
     def test_lifespan_invalid(self):
         app = async_asgi.ASGIApp('eio')
-        handler = app({'type': 'lifespan'})
+        scope = {'type': 'lifespan'}
         receive = AsyncMock(return_value={'type': 'lifespan.foo'})
         send = AsyncMock()
-        _run(handler(receive, send))
+        _run(app(scope, receive, send))
         send.mock.assert_not_called()
 
     def test_not_found(self):
         app = async_asgi.ASGIApp('eio')
-        handler = app({'type': 'http', 'path': '/foo'})
+        scope = {'type': 'http', 'path': '/foo'}
         receive = AsyncMock(return_value={'type': 'http.request'})
         send = AsyncMock()
-        _run(handler(receive, send))
+        _run(app(scope, receive, send))
         send.mock.assert_any_call(
             {'type': 'http.response.start', 'status': 404,
              'headers': [(b'Content-Type', b'text/plain')]})
         send.mock.assert_any_call({'type': 'http.response.body',
-                                   'body': b'not found'})
+                                   'body': b'Not Found'})
 
     def test_translate_request(self):
         receive = AsyncMock(return_value={'type': 'http.request',
