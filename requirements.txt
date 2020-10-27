@@ -10,7 +10,7 @@ certifi==2019.3.9
 cffi==1.12.3
 chardet==3.0.4
 Click==7.0
-cryptography==2.7
+cryptography==3.2
 csvalidate==1.1.1
 Django==2.2.4
 djangorestframework==3.9.4
