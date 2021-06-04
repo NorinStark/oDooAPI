@@ -12,7 +12,7 @@ chardet==3.0.4
 Click==7.0
 cryptography==2.7
 csvalidate==1.1.1
-Django==2.2.4
+Django==2.2.21
 djangorestframework==3.9.4
 docker==3.7.2
 docker-compose==1.24.0
